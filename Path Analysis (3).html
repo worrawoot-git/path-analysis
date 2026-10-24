@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Path Analysis</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#f5f6fa;--fg:#1d2433;--card:#fff;--bd:#d9dde8;--ac:#2f5bd8;--mut:#6b7385;--ok:#12805c;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171f;--fg:#e8ebf3;--card:#1e2230;--bd:#33394d;--ac:#7b9bff;--mut:#9aa3b8;--ok:#4fd1a1;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14171f;--fg:#e8ebf3;--card:#1e2230;--bd:#33394d;--ac:#7b9bff;--mut:#9aa3b8;--ok:#4fd1a1;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Sarabun","Noto Sans Thai",system-ui,sans-serif;line-height:1.55}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:.2em 0}h2{font-size:1.1rem;margin:0 0 8px}h3{font-size:1rem;margin:18px 0 6px}
+section{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
+.card{border:1px solid var(--bd);border-radius:10px;padding:10px;margin:8px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input.nm{flex:1;min-width:180px;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{border:1px solid var(--bd);border-radius:999px;padding:3px 10px;font-size:.9rem;cursor:pointer;display:inline-flex;gap:5px;align-items:center}
+.chip:has(input:checked){background:var(--ac);color:#fff;border-color:var(--ac)}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid var(--ac);background:transparent;color:var(--ac);cursor:pointer}
+button.p{background:var(--ac);color:#fff}button.x{border-color:#c0392b;color:#c0392b}
+.muted{color:var(--mut);font-size:.9rem}
+select{padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit;max-width:100%}
+.box{min-height:44px;border:1px dashed var(--ac);border-radius:10px;padding:8px;margin:6px 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.tag{background:var(--ac);color:#fff;border-radius:999px;padding:2px 6px 2px 12px;font-size:.9rem;display:inline-flex;gap:8px;align-items:center}
+.tag b{cursor:pointer;background:rgba(255,255,255,.25);border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center}
+.sc{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:4px 0}
+th,td{border:1px solid var(--bd);padding:5px 8px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{background:var(--bg)}
+.note{font-size:.88rem;color:var(--mut);margin:2px 0 8px}
+.int li{margin:3px 0}
+.cv{background:#fff;border:1px solid var(--bd);border-radius:10px;overflow:auto}
+canvas{width:100%;height:auto;display:block}
+.sig{color:var(--ok);font-weight:600}
+</style></head><body><div class="wrap">
+<h1>📊 วิเคราะห์เส้นทางอิทธิพล (Path Analysis)</h1>
+<p class="muted">ประมาณค่าด้วย OLS บนคะแนนเฉลี่ยของตัวแปรสังเกตได้แต่ละกลุ่ม · ทดสอบ Indirect effect ด้วย Sobel test</p>
+
+<section><h2>1. นำเข้าข้อมูล (Excel / CSV)</h2>
+<input type="file" id="file" accept=".xlsx,.xls,.csv"><div id="finfo" class="muted">แถวแรกต้องเป็นชื่อคอลัมน์ ข้อมูลเป็นตัวเลข</div></section>
+
+<section><h2>2. ตัวแปรอิสระ (X)</h2><div id="ivs"></div><button id="addIv">+ เพิ่มตัวแปรอิสระ</button></section>
+<section><h2>3. ตัวแปรส่งผ่าน (M)</h2><div id="ms"></div><button id="addM">+ เพิ่มตัวแปรส่งผ่าน</button></section>
+<section><h2>4. ตัวแปรตาม (Y)</h2><div id="dv"></div></section>
+<section><h2>5. ความสัมพันธ์ระหว่างตัวแปร</h2><div class="muted">จับคู่เส้นทางเอง: เลือกตัวแปรต้นทาง → ปลายทาง แล้วกดเพิ่ม · X → Y = Direct effect · X → M → Y = Indirect effect (ระบบคำนวณอิทธิพลทางอ้อมจากเส้นทางที่คุณเชื่อมไว้)</div><div id="rel"></div></section>
+
+<div class="row"><button class="p" id="run">▶ ประมวลผล</button><button id="draw">🖼 สร้างแผนภาพโมเดล</button><button class="x" id="reset">↺ Reset</button></div>
+
+<div id="out"></div>
+<div id="diag" style="display:none"><h2>แผนภาพโมเดล Path Analysis</h2><p class="row"><label>แสดงค่าสัมประสิทธิ์: <select id="dm"><option value="std">Standardized (β)</option><option value="un">Unstandardized (B)</option><option value="both">ทั้งสองแบบ</option></select></label></p><div class="cv"><canvas id="cv"></canvas></div><p><button id="png">⬇ ดาวน์โหลด PNG</button></p></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let uid=0;const mk=()=>({id:++uid,name:'',cols:[]});
+let data=[],headers=[],S,R=null,sheets=[];
+const init=()=>{S={iv:[mk(),mk()],m:[],dv:mk(),paths:[]}};init();
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const nm=(g,d)=>g.name.trim()||d;
+const label=g=>{let k=S.iv.indexOf(g);if(k>=0)return nm(g,'X'+(k+1));k=S.m.indexOf(g);if(k>=0)return nm(g,'M'+(k+1));return nm(g,'Y')};
+const byId=id=>[...S.iv,...S.m,S.dv].find(g=>String(g.id)===String(id));
+const getG=id=>{const [k,i]=id.split('.');return k==='dv'?S.dv:S[k][+i]};
+function grp(key,g,i,lb,del){
+ const id=i==null?key:key+'.'+i,used=new Set([...S.iv,...S.m,S.dv].flatMap(x=>x.cols)),avail=headers.filter(h=>!used.has(h));
+ return `<div class="card" data-g="${id}"><div class="row"><input class="nm" data-k="name" placeholder="ชื่อ${lb}" value="${esc(g.name)}">${del?'<button class="x" data-act="del">ลบ</button>':''}</div>
+ <div class="muted">ตัวแปรสังเกตได้ในตัวแปรนี้ (${g.cols.length}):</div>
+ <div class="box">${g.cols.length?g.cols.map(c=>`<span class="tag">${esc(c)}<b data-act="rm" data-v="${esc(c)}">×</b></span>`).join(''):'<span class="muted">ยังไม่มี — กดเลือกจากรายการด้านล่าง</span>'}</div>
+ <div class="chips">${!headers.length?'<span class="muted">อัปโหลดไฟล์เพื่อเลือกตัวแปรสังเกตได้</span>':avail.length?avail.map(h=>`<button type="button" class="chip" data-act="add" data-v="${esc(h)}">+ ${esc(h)}</button>`).join(''):'<span class="muted">เลือกครบทุกคอลัมน์แล้ว</span>'}</div></div>`}
+function render(){
+ $('ivs').innerHTML=S.iv.map((g,i)=>grp('iv',g,i,'ตัวแปรอิสระ '+(i+1),S.iv.length>1)).join('');
+ $('ms').innerHTML=S.m.length?S.m.map((g,i)=>grp('m',g,i,'ตัวแปรส่งผ่าน '+(i+1),true)).join(''):'<div class="muted">ยังไม่มีตัวแปรส่งผ่าน (ไม่บังคับ)</div>';
+ $('dv').innerHTML=grp('dv',S.dv,null,'ตัวแปรตาม',false);
+ renderRel();
+}
+function renderRel(){
+ const pf=$('pf')?$('pf').value:'',pt=$('pt')?$('pt').value:'';
+ const opt=(a,sel)=>a.map(g=>`<option value="${g.id}" ${String(g.id)===sel?'selected':''}>${esc(label(g))}</option>`).join('');
+ $('rel').innerHTML=`<div class="row"><select id="pf">${opt([...S.iv,...S.m],pf)}</select><span>→</span><select id="pt">${opt([...S.m,S.dv],pt)}</select><button type="button" class="p" data-act="addpath">+ เพิ่มเส้นทาง</button></div>`+
+ (S.paths.length?`<div class="sc"><table><tr><th>เส้นทาง</th><th>ประเภท</th><th></th></tr>${S.paths.map((p,k)=>{const f=byId(p.f),t=byId(p.t);return `<tr><td>${esc(label(f))} → ${esc(label(t))}</td><td>${S.iv.includes(f)&&t===S.dv?'Direct effect':'ส่วนหนึ่งของ Indirect effect'}</td><td><button type="button" class="x" data-act="delpath" data-v="${k}">ลบ</button></td></tr>`}).join('')}</table></div>`:'<div class="muted" style="margin-top:8px">ยังไม่มีเส้นทาง — เลือกต้นทางและปลายทางแล้วกดเพิ่ม</div>');
+}
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k==='name')getG(t.closest('[data-g]').dataset.g).name=t.value});
+document.addEventListener('change',e=>{if(e.target.dataset.k==='name')renderRel()});
+document.addEventListener('click',e=>{const t=e.target,a=t.dataset.act;if(!a)return;
+ const c=t.closest('[data-g]'),g=c&&getG(c.dataset.g);
+ if(a==='add'){g.cols.push(t.dataset.v);render()}
+ else if(a==='rm'){g.cols=g.cols.filter(x=>x!==t.dataset.v);render()}
+ else if(a==='del'){const [k,i]=c.dataset.g.split('.');const [rm]=S[k].splice(+i,1);S.paths=S.paths.filter(p=>p.f!==rm.id&&p.t!==rm.id);render()}
+ else if(a==='delpath'){S.paths.splice(+t.dataset.v,1);renderRel()}
+ else if(a==='addpath'){const f=+$('pf').value,tt=+$('pt').value;
+  if(!f||!tt)return;if(f===tt)return alert('ต้นทางและปลายทางต้องเป็นตัวแปรคนละตัว');
+  if(S.paths.some(p=>p.f===f&&p.t===tt))return alert('มีเส้นทางนี้แล้ว');
+  const reach=(x,y,seen=new Set())=>x===y||(!seen.has(x)&&(seen.add(x),S.paths.some(p=>p.f===x&&reach(p.t,y,seen))));
+  if(reach(tt,f))return alert('เส้นทางนี้ทำให้เกิดวงวน (cycle) ซึ่งใช้ไม่ได้ใน path analysis แบบ recursive');
+  S.paths.push({f,t:tt});renderRel()}});
+$('addIv').onclick=()=>{S.iv.push(mk());render()};
+$('addM').onclick=()=>{S.m.push(mk());render()};
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+ r.onload=ev=>{try{const wb=XLSX.read(ev.target.result,{type:'array'});data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+  const hs=new Set();data.forEach(o=>Object.keys(o).forEach(k=>hs.add(k)));headers=[...hs];
+  $('finfo').textContent=`✔ ${f.name}: ${data.length} แถว, ${headers.length} คอลัมน์`;render()}catch(err){alert('อ่านไฟล์ไม่สำเร็จ: '+err.message)}};
+ r.readAsArrayBuffer(f)};
+
+/* ---------- statistics ---------- */
+const mean=a=>a.reduce((s,v)=>s+v,0)/a.length;
+const sd=a=>{const m=mean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1))};
+const corr=(a,b)=>{const ma=mean(a),mb=mean(b);let s=0,x=0,y=0;a.forEach((v,i)=>{s+=(v-ma)*(b[i]-mb);x+=(v-ma)**2;y+=(b[i]-mb)**2});return s/Math.sqrt(x*y)};
+function lg(x){const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];let y=x,t=x+5.5;t-=(x+.5)*Math.log(t);let s=1.000000000190015;for(const v of c)s+=v/++y;return -t+Math.log(2.5066282746310005*s/x)}
+function bcf(a,b,x){const qab=a+b,qap=a+1,qam=a-1;let c=1,d=1-qab*x/qap;if(Math.abs(d)<1e-30)d=1e-30;d=1/d;let h=d;
+ for(let m=1;m<=200;m++){const m2=2*m;let aa=m*(b-m)*x/((qam+m2)*(a+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;d=1/d;h*=d*c;
+ aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));d=1+aa*d;if(Math.abs(d)<1e-30)d=1e-30;c=1+aa/c;if(Math.abs(c)<1e-30)c=1e-30;d=1/d;const del=d*c;h*=del;if(Math.abs(del-1)<3e-9)break}return h}
+function betai(x,a,b){if(x<=0)return 0;if(x>=1)return 1;const bt=Math.exp(lg(a+b)-lg(a)-lg(b)+a*Math.log(x)+b*Math.log(1-x));return x<(a+1)/(a+b+2)?bt*bcf(a,b,x)/a:1-bt*bcf(b,a,1-x)/b}
+const pT=(t,df)=>betai(df/(df+t*t),df/2,.5), pFd=(F,d1,d2)=>betai(d2/(d2+d1*F),d2/2,d1/2);
+function erf(x){const s=x<0?-1:1;x=Math.abs(x);const t=1/(1+.3275911*x);return s*(1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x))}
+const pZ=z=>1-erf(Math.abs(z)/Math.SQRT2);
+function invert(A){const n=A.length,M=A.map((r,i)=>[...r,...Array.from({length:n},(_,j)=>+(i===j))]);
+ for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(M[r][i])>Math.abs(M[p][i]))p=r;if(Math.abs(M[p][i])<1e-12)return null;[M[i],M[p]]=[M[p],M[i]];
+ const d=M[i][i];M[i]=M[i].map(v=>v/d);for(let r=0;r<n;r++)if(r!==i){const f=M[r][i];M[r]=M[r].map((v,j)=>v-f*M[i][j])}}return M.map(r=>r.slice(n))}
+function ols(y,xs){const n=y.length,k=xs.length,p=k+1,X=y.map((_,r)=>[1,...xs.map(x=>x[r])]);
+ const A=Array.from({length:p},(_,i)=>Array.from({length:p},(_,j)=>X.reduce((s,r)=>s+r[i]*r[j],0)));
+ const b=Array.from({length:p},(_,i)=>X.reduce((s,r,q)=>s+r[i]*y[q],0));const inv=invert(A);if(!inv)return null;
+ const B=inv.map(r=>r.reduce((s,v,j)=>s+v*b[j],0));let sse=0,sst=0;const my=mean(y);
+ X.forEach((r,q)=>{const e=y[q]-r.reduce((s,v,j)=>s+v*B[j],0);sse+=e*e;sst+=(y[q]-my)**2});
+ const df=n-p,mse=sse/df,se=B.map((_,i)=>Math.sqrt(mse*inv[i][i])),R2=1-sse/sst,F=(R2/k)/((1-R2)/df);
+ return{a:B[0],B:B.slice(1),se:se.slice(1),t:B.slice(1).map((v,i)=>v/se[i+1]),df,R2,adj:1-(1-R2)*(n-1)/df,F,pF:pFd(F,k,df),k}}
+const fp=p=>p<.001?'<.001':p.toFixed(3).replace(/^0/,'');
+const star=p=>p<.001?'***':p<.01?'**':p<.05?'*':'';
+const f3=x=>isFinite(x)?x.toFixed(3):'-';
+
+function tbl(sheet,title,head,rows,note){sheets.push({name:sheet,aoa:[head,...rows]});
+ return `<h3>${title}</h3><div class="sc"><table><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${typeof c==='number'?f3(c):c}</td>`).join('')}</tr>`).join('')}</table></div>${note?`<div class="note">${note}</div>`:''}`}
+
+/* ---------- run ---------- */
+$('run').onclick=()=>{
+ if(!data.length)return alert('กรุณานำเข้าไฟล์ข้อมูลก่อน');
+ const G=[...S.iv.map((g,i)=>({g,d:'X'+(i+1)})),...S.m.map((g,i)=>({g,d:'M'+(i+1)})),{g:S.dv,d:'Y'}];
+ for(const o of G)if(!o.g.cols.length)return alert('กรุณาเลือกตัวแปรสังเกตได้ให้ครบทุกตัวแปร ('+nm(o.g,o.d)+')');
+ const names=G.map(o=>nm(o.g,o.d));if(new Set(names).size<names.length)return alert('ชื่อตัวแปรต้องไม่ซ้ำกัน');
+ const nI=S.iv.length,nM=S.m.length,yI=nI+nM;
+ const vr=[],rows=[];
+ data.forEach(r=>{const v=G.map(o=>{let s=0;for(const c of o.g.cols){const x=parseFloat(r[c]);if(!isFinite(x))return NaN;s+=x}return s/o.g.cols.length});if(v.every(isFinite)){rows.push(v);vr.push(r)}});
+ const n=rows.length;if(n<G.length+3)return alert('จำนวนข้อมูลที่สมบูรณ์น้อยเกินไป (n='+n+')');
+ const col=j=>rows.map(r=>r[j]);
+ sheets=[];const paths={};const eqs=[];const r2={};
+ const fit=(yj,xj)=>{if(!xj.length)return;const o=ols(col(yj),xj.map(col));if(!o)throw new Error('ตัวแปรมี multicollinearity สูงเกินไป ('+names[yj]+')');
+  xj.forEach((x,q)=>{paths[x+'>'+yj]={from:x,to:yj,B:o.B[q],se:o.se[q],t:o.t[q],p:pT(o.t[q],o.df),beta:o.B[q]*sd(col(x))/sd(col(yj))}});
+  r2[yj]=o;eqs.push(yj)};
+ const idx={};G.forEach((o,j)=>idx[o.g.id]=j);
+ const E=S.paths.map(p=>[idx[p.f],idx[p.t]]);
+ if(!E.length)return alert('กรุณากำหนดเส้นทางความสัมพันธ์อย่างน้อย 1 เส้นทาง');
+ if(!E.some(e=>e[1]===yI))return alert('ต้องมีเส้นทางที่ชี้ไปยังตัวแปรตามอย่างน้อย 1 เส้นทาง');
+ try{[...new Set(E.map(e=>e[1]))].forEach(y=>fit(y,E.filter(e=>e[1]===y).map(e=>e[0])))}catch(err){return alert(err.message)}
+ const ind=[],adj={};E.forEach(([a,b])=>(adj[a]=adj[a]||[]).push(b));
+ const walk=ch=>{const last=ch[ch.length-1];if(last===yI){if(ch.length>2){const ks=[];for(let q=0;q<ch.length-1;q++)ks.push(paths[ch[q]+'>'+ch[q+1]]);
+  const ab=ks.reduce((s,k)=>s*k.B,1),se=Math.sqrt(ks.reduce((s,k,q)=>s+(ks.reduce((m,k2,q2)=>q2===q?m:m*k2.B,1)*k.se)**2,0)),z=ab/se;
+  ind.push({i:ch[0],ch,ab,se,z,p:pZ(z),std:ks.reduce((s,k)=>s*k.beta,1)})}return}(adj[last]||[]).forEach(nx=>walk([...ch,nx]))};
+ for(let i=0;i<nI;i++)walk([i]);
+ const tot=S.iv.map((_,i)=>{const d=paths[i+'>'+yI],is=ind.filter(x=>x.i===i);return{i,dB:d?d.B:0,dS:d?d.beta:0,iB:is.reduce((s,x)=>s+x.ab,0),iS:is.reduce((s,x)=>s+x.std,0)}}).filter(t=>paths[t.i+'>'+yI]||ind.some(x=>x.i===t.i));
+ R={G,names,nI,nM,yI,paths,r2,ind,n};
+
+ let h=`<section><h2>ผลการวิเคราะห์ (n = ${n})</h2><p><button class="p" id="xl">⬇ ดาวน์โหลดตารางทั้งหมดเป็น Excel</button></p>`;
+ h+=tbl('Descriptive','ตารางที่ 1 สถิติพื้นฐานและความเชื่อมั่น',['ตัวแปร','บทบาท','จำนวนข้อ','Mean','SD','Cronbach α'],
+  G.map((o,j)=>{let al='-';const k=o.g.cols.length;if(k>1){const it=o.g.cols.map(c=>vr.map(r=>parseFloat(r[c])));const tv=sd(col(j).map(v=>v*k))**2;al=(k/(k-1)*(1-it.reduce((s,a)=>s+sd(a)**2,0)/tv)).toFixed(3)}
+  return[names[j],j<nI?'ตัวแปรอิสระ':j<yI?'ตัวแปรส่งผ่าน':'ตัวแปรตาม',k,mean(col(j)),sd(col(j)),al]}),
+  'ตัวแปรแต่ละตัวคำนวณจากค่าเฉลี่ยของตัวแปรสังเกตได้ · Cronbach α ≥ .70 ถือว่าเชื่อมั่นได้ในระดับยอมรับได้');
+ h+=tbl('Correlation','ตารางที่ 2 เมทริกซ์สหสัมพันธ์ (Pearson r)',['',...names],names.map((a,i)=>[a,...names.map((_,j)=>{if(i===j)return'1';const r=corr(col(i),col(j)),t=r*Math.sqrt((n-2)/(1-r*r));return f3(r)+star(pT(t,n-2))})]),'* p<.05, ** p<.01, *** p<.001');
+ const pr=Object.values(paths);
+ h+=tbl('Path coefficients','ตารางที่ 3 สัมประสิทธิ์เส้นทาง (Direct effects)',['เส้นทาง','B','SE','β','t','p','sig.'],
+  pr.map(x=>[names[x.from]+' → '+names[x.to],x.B,x.se,x.beta,x.t,fp(x.p),star(x.p)||'ns']),'B = สัมประสิทธิ์การถดถอยแบบไม่ปรับมาตรฐาน, β = สัมประสิทธิ์มาตรฐาน, ns = ไม่มีนัยสำคัญที่ระดับ .05');
+ h+=tbl('Model summary','ตารางที่ 4 ความแปรปรวนที่อธิบายได้ของสมการ',['ตัวแปรตาม','R²','Adj. R²','F','df','p'],
+  eqs.map(y=>{const o=r2[y];return[names[y],o.R2,o.adj,o.F,o.k+', '+o.df,fp(o.pF)]}),'R² = สัดส่วนความแปรปรวนของตัวแปรตามที่อธิบายได้โดยตัวแปรที่ส่งผลมายังตัวแปรนั้น');
+ if(ind.length)h+=tbl('Indirect effects','ตารางที่ 5 อิทธิพลทางอ้อม (Sobel test)',['เส้นทาง','Indirect (B)','SE','Z','p','Indirect (β)','sig.'],
+  ind.map(x=>[x.ch.map(k=>names[k]).join(' → '),x.ab,x.se,x.z,fp(x.p),x.std,star(x.p)||'ns']),'Indirect effect = a × b โดยทดสอบนัยสำคัญด้วย Sobel test (Z)');
+ h+=tbl('Total effects','ตารางที่ ' + (ind.length?6:5) + ' อิทธิพลรวม (Total effect = Direct + Indirect)',['ตัวแปรอิสระ','Direct (β)','Indirect (β)','Total (β)','Direct (B)','Indirect (B)','Total (B)'],
+  tot.map(t=>[names[t.i]+' → '+names[yI],t.dS,t.iS,t.dS+t.iS,t.dB,t.iB,t.dB+t.iB]),'');
+ const term=(v,t,first)=>(v<0?(first?'−':' − '):(first?'':' + '))+Math.abs(v).toFixed(3)+'('+t+')';
+ const EQ=eqs.map(y=>{const xs=pr.filter(x=>x.to===y);return{y,b:'Ŷ('+names[y]+') = '+r2[y].a.toFixed(3)+xs.map(x=>term(x.B,names[x.from])).join(''),z:'Z('+names[y]+') = '+xs.map((x,q)=>term(x.beta,'Z '+names[x.from],q===0)).join('')}});
+ h+=tbl('Equations','ตารางที่ '+(ind.length?7:6)+' สมการพยากรณ์',['ตัวแปรตาม','สมการแบบ B (ไม่ปรับมาตรฐาน, มีค่าคงที่)','สมการแบบ β (มาตรฐาน)','R²'],
+  EQ.map(q=>[names[q.y],q.b,q.z,r2[q.y].R2]),
+  'Ŷ = ค่าพยากรณ์ของตัวแปรตาม, ตัวเลขหน้าวงเล็บ = สัมประสิทธิ์ของตัวแปรในวงเล็บ (ใช้คะแนนเฉลี่ยของตัวแปร), Z = คะแนนมาตรฐาน (สมการแบบ β ไม่มีค่าคงที่) · ต่อท้ายด้วยค่า R² ของสมการนั้น');
+ const L=[];
+ EQ.forEach(q=>{const y=q.y,o=r2[y],xs=pr.filter(x=>x.to===y),ny=esc(names[y]);
+  const ex=xs.map(x=>{const s=x.p<.05,nx=esc(names[x.from]);return `<li><b>${nx}</b>: B = ${f3(x.B)}, β = ${f3(x.beta)}, t = ${f3(x.t)}, p ${x.p<.001?'':'= '}${fp(x.p)} — ${s?`<span class="sig">มีอิทธิพลทาง${x.beta>0?'บวก':'ลบ'}อย่างมีนัยสำคัญทางสถิติ</span>`:'ไม่มีนัยสำคัญทางสถิติ'}: เมื่อ ${nx} เพิ่มขึ้น 1 หน่วย ${ny} จะ${x.B>=0?'เพิ่มขึ้น':'ลดลง'} ${Math.abs(x.B).toFixed(3)} หน่วย (หรือ ${Math.abs(x.beta).toFixed(3)} SD เมื่อ ${nx} เพิ่มขึ้น 1 SD) โดยควบคุมตัวแปรอื่นในสมการให้คงที่</li>`}).join('');
+  L.push(`<li><b>สมการพยากรณ์ ${ny}</b><br>แบบ B: ${esc(q.b)}<br>แบบ β: ${esc(q.z)}<br>R² = ${f3(o.R2)}, F(${o.k}, ${o.df}) = ${f3(o.F)}, p ${o.pF<.001?'':'= '}${fp(o.pF)}<br><b>คำอธิบาย:</b> ตัวแปรในสมการร่วมกันอธิบายความแปรปรวนของ ${ny} ได้ ${(o.R2*100).toFixed(1)}% ${o.pF<.05?'และสมการมีนัยสำคัญทางสถิติที่ระดับ .05':'แต่สมการไม่มีนัยสำคัญทางสถิติที่ระดับ .05'} · ค่าคงที่ ${f3(o.a)} คือค่าพยากรณ์ของ ${ny} เมื่อตัวแปรต้นทุกตัวเป็น 0<ul>${ex}</ul></li>`)});
+ ind.forEach(x=>{const d=paths[x.i+'>'+yI],ds=d&&d.p<.05;let t;
+  if(x.p<.05)t=!d?'ส่งผ่านโดยสมบูรณ์ (ไม่ได้ระบุ direct effect)':ds?'เป็นการส่งผ่านบางส่วน (Partial mediation)':'เป็นการส่งผ่านโดยสมบูรณ์ (Full mediation)';else t='ไม่พบการส่งผ่านอย่างมีนัยสำคัญ';
+  L.push(`<li><b>${esc(x.ch.map(k=>names[k]).join(' → '))}</b>: Indirect β = ${f3(x.std)}, Z = ${f3(x.z)}, p = ${fp(x.p)} → ${t}</li>`)});
+ h+=`<h3>คำอธิบายผลการวิเคราะห์</h3><ul class="int">${L.join('')}</ul><div class="note">หมายเหตุ: โมเดลที่ระบุเส้นทางครบทุกเส้นเป็นโมเดลแบบ saturated (df = 0) จึงไม่มีดัชนีความสอดคล้อง (χ², RMSEA, CFI) · ใช้คะแนนเฉลี่ยของข้อคำถามแทนตัวแปรแฝง ไม่ใช่ SEM เต็มรูปแบบ</div></section>`;
+ $('out').innerHTML=h;
+ $('xl').onclick=()=>{const wb=XLSX.utils.book_new();sheets.forEach(s=>XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s.aoa),s.name.slice(0,31)));XLSX.writeFile(wb,'path_analysis_results.xlsx')};
+ $('out').scrollIntoView({behavior:'smooth'});
+};
+
+/* ---------- diagram ---------- */
+function drawDiagram(){
+ if(!R)return alert('กรุณากด "ประมวลผล" ก่อน');
+ const {names,nI,nM,yI,paths,r2}=R,W=1100,cnt=Math.max(nI,nM,1),H=Math.max(340,cnt*110+60),Hc=H+70,sc=2;
+ const cv=$('cv');cv.width=W*sc;cv.height=Hc*sc;const c=cv.getContext('2d');c.scale(sc,sc);
+ c.fillStyle='#fff';c.fillRect(0,0,W,Hc);
+ const bw=190,bh=62,nodes=[];
+ const place=(idx,x,k,tot)=>nodes[idx]={x,y:H*(k+1)/(tot+1)-bh/2,w:bw,h:bh};
+ for(let i=0;i<nI;i++)place(i,40,i,nI);
+ for(let j=0;j<nM;j++)place(nI+j,W/2-bw/2,j,nM);
+ place(yI,W-40-bw,0,1);
+ const ep=(n,tx,ty)=>{const cx=n.x+n.w/2,cy=n.y+n.h/2,dx=tx-cx,dy=ty-cy,s=Math.min(dx?(n.w/2)/Math.abs(dx):1e9,dy?(n.h/2)/Math.abs(dy):1e9);return[cx+dx*s,cy+dy*s]};
+ const head=(x,y,a)=>{c.beginPath();c.moveTo(x,y);c.lineTo(x-12*Math.cos(a-.4),y-12*Math.sin(a-.4));c.lineTo(x-12*Math.cos(a+.4),y-12*Math.sin(a+.4));c.closePath();c.fill()};
+ const lab=(x,y,t,sig)=>{c.font='bold 14px sans-serif';const w=c.measureText(t).width+10;c.fillStyle='#fff';c.fillRect(x-w/2,y-11,w,22);c.fillStyle=sig?'#0b6b4a':'#777';c.textAlign='center';c.textBaseline='middle';c.fillText(t,x,y)};
+ Object.values(paths).forEach(p=>{const a=nodes[p.from],b=nodes[p.to],sig=p.p<.05,col=sig?'#2f5bd8':'#999';
+  c.strokeStyle=col;c.fillStyle=col;c.lineWidth=sig?2.2:1.4;c.setLineDash(sig?[]:[6,4]);
+  const md=$('dm').value,t=md==='std'?`β=${p.beta.toFixed(3)}${star(p.p)}`:md==='un'?`B=${p.B.toFixed(3)}${star(p.p)}`:`β=${p.beta.toFixed(3)}${star(p.p)} (B=${p.B.toFixed(3)})`;
+  if(nM>0&&p.from<nI&&p.to===yI){const ctl=[W/2,Hc-6+(p.from-nI/2)*6],s=ep(a,...ctl),e=ep(b,...ctl);
+   c.beginPath();c.moveTo(...s);c.quadraticCurveTo(...ctl,...e);c.stroke();c.setLineDash([]);head(e[0],e[1],Math.atan2(e[1]-ctl[1],e[0]-ctl[0]));
+   lab(.25*s[0]+.5*ctl[0]+.25*e[0],.25*s[1]+.5*ctl[1]+.25*e[1],t,sig)}
+  else{const bc=[b.x+b.w/2,b.y+b.h/2],ac=[a.x+a.w/2,a.y+a.h/2],s=ep(a,...bc),e=ep(b,...ac);
+   c.beginPath();c.moveTo(...s);c.lineTo(...e);c.stroke();c.setLineDash([]);head(e[0],e[1],Math.atan2(e[1]-s[1],e[0]-s[0]));
+   const tt=p.from<nI&&p.to>=nI&&p.to<yI?.4:p.from>=nI?.55:.5;lab(s[0]+(e[0]-s[0])*tt,s[1]+(e[1]-s[1])*tt,t,sig)}});
+ nodes.forEach((n,idx)=>{c.setLineDash([]);c.lineWidth=2;c.fillStyle=idx<nI?'#e8eefc':idx<yI?'#fff4dc':'#e3f6ee';c.strokeStyle='#333';
+  c.beginPath();c.roundRect(n.x,n.y,n.w,n.h,10);c.fill();c.stroke();c.fillStyle='#111';c.textAlign='center';c.textBaseline='middle';
+  let l=names[idx];if(l.length>22)l=l.slice(0,21)+'…';c.font='bold 16px sans-serif';c.fillText(l,n.x+n.w/2,n.y+(r2[idx]?24:n.h/2));
+  if(r2[idx]){c.font='14px sans-serif';c.fillText('R² = '+r2[idx].R2.toFixed(3),n.x+n.w/2,n.y+46)}});
+ c.fillStyle='#555';c.font='13px sans-serif';c.textAlign='left';c.fillText('เส้นทึบ = มีนัยสำคัญ (p<.05), เส้นประ = ไม่มีนัยสำคัญ · β = standardized, B = unstandardized · * p<.05, ** p<.01, *** p<.001 · n = '+R.n,16,Hc-10);
+ $('diag').style.display='block'}
+$('draw').onclick=()=>{drawDiagram();if(R)$('diag').scrollIntoView({behavior:'smooth'})};
+$('dm').onchange=()=>{if(R)drawDiagram()};
+$('png').onclick=()=>$('cv').toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='path_diagram.png';a.click()});
+
+$('reset').onclick=()=>{if(!confirm('ต้องการล้างข้อมูลและการตั้งค่าทั้งหมดหรือไม่?'))return;init();data=[];headers=[];R=null;sheets=[];
+ $('file').value='';$('finfo').textContent='แถวแรกต้องเป็นชื่อคอลัมน์ ข้อมูลเป็นตัวเลข';$('out').innerHTML='';$('diag').style.display='none';render()};
+render();
+</script></body></html>
